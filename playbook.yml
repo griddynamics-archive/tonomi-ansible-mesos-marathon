@@ -1,0 +1,69 @@
+---
+- hosts: mesos_masters
+  remote_user: ubuntu
+  become: yes
+  become_method: sudo
+  roles:
+    - role: ansible-ntp
+
+    - role: ansible-zookeeper
+      zookeeper_hosts: "{{ mesos_master_hosts }}"
+
+    - role: ansible-mesos
+      mesos_install_mode: master
+      mesos_work_dir: "/mnt/mesos"
+      mesos_quorum: 1
+      zookeeper_hostnames: "{{ groups.mesos_masters | join(':' + zookeeper_client_port + ',') }}:{{ zookeeper_client_port }}"
+      mesos_hostname: "{{ ansible_default_ipv4.address }}"
+      mesos_version: "{{ mesos_version }}"
+      mesos_package_version: "{{ mesos_package_version }}"
+
+    - role: ansible-mesos-dns
+      mesos_dns_install_mode: server
+      mesos_master_hosts: "{{ mesos_master_hosts }}"
+      zookeeper_hosts: "{{ groups.mesos_masters | join(':' + zookeeper_client_port + ',') }}:{{ zookeeper_client_port }}"
+
+    - role: ansible-java
+      use_openjdk_ppa: true
+      java_version: "8"
+      java_register_alternative: true
+
+    - role: ansible-haproxy
+
+    - role: ansible-marathon
+      zookeeper_hostnames: "{{ groups.mesos_masters | join(':' + zookeeper_client_port + ',')  }}:{{ zookeeper_client_port  }}"
+      marathon_version: "{{ marathon_version }}"
+      marathon_additional_configs:
+        - name: enable_features
+          value: external_volumes
+        - name: mesos_authentication_principal
+          value: marathon
+        - name: mesos_role
+          value: marathon
+
+- hosts: mesos_workers
+  remote_user: ubuntu
+  become: yes
+  become_method: sudo
+  roles:
+    - role: ansible-ntp
+
+    - role: ansible-docker
+      docker_opts: '"-g /mnt/docker"'
+
+    - role: ansible-mesos
+      mesos_install_mode: slave
+      mesos_work_dir: "/mnt/mesos"
+      mesos_quorum: 1
+      mesos_hostname: "{{ ansible_default_ipv4.address }}"
+      zookeeper_hostnames: "{{ groups.mesos_masters | join(':' + zookeeper_client_port + ',')  }}:{{ zookeeper_client_port  }}"
+      mesos_containerizers: "docker,mesos"
+      mesos_version: "{{ mesos_version }}"
+      mesos_package_version: "{{ mesos_package_version }}"
+      mesos_slave_additional_configs:
+        - name: ATTRIBUTES
+          value: '"node_type:{{ mesos_node_type }}"'
+
+    - role: ansible-mesos-dns
+      mesos_dns_install_mode: client
+      mesos_dns_hosts: "{{ mesos_master_hosts }}"
